@@ -1,0 +1,8 @@
+Happy Clappy Loop
+Author: OwlishMedia
+Source: https://opengameart.org/content/happy-clappy-loop
+Download: https://opengameart.org/sites/default/files/HappyClappyLoop.wav
+License: CC0 1.0 Universal
+https://creativecommons.org/publicdomain/zero/1.0/
+Retrieved: 2026-09-30
+Converted from original WAV to Ogg Vorbis q4, 44100 Hz. Gain increased by 6.02 dB. No arrangement changes.

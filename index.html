@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>Твой салон красоты</title>
+    <link rel="icon" type="image/png" href="assets/art/ui/icon.webp">
+    <link rel="preload" href="assets/fonts/salon-nunito.ttf" as="font" type="font/ttf" crossorigin>
+    <style>
+        :root {
+            --dock: 208px;            /* нижняя панель с инструментами (портрет) */
+            --pink: #ff5f9e;
+            --pink-soft: #ffd8e8;
+            --lilac: #b07ae8;
+            --ink: #4a2440;
+            --card: #fffafc;
+            --shadow: 0 10px 24px rgba(120, 40, 90, .18);
+            --safe-b: env(safe-area-inset-bottom, 0px);
+            --safe-t: env(safe-area-inset-top, 0px);
+        }
+        html, body {
+            margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden;
+            background: #f4d7e6;
+            font-family: system-ui, "Segoe UI", Roboto, sans-serif;
+            color: var(--ink);
+            -webkit-touch-callout: none; -webkit-user-select: none; user-select: none;
+        }
+        input, textarea, [contenteditable] { -webkit-user-select: text; user-select: text; }
+        img { -webkit-user-drag: none; }
+        button { font-family: inherit; }
+
+        [hidden] { display: none !important; }
+
+        /* Игровое поле. Панель инструментов не перекрывает сцену: холст ужимается.
+           Холст — замещаемый элемент: размер задаёт обёртка, иначе он берёт свой
+           «естественный» размер и картинка разъезжается. */
+        #stage {
+            position: fixed; left: 0; right: 0; top: 0;
+            bottom: calc(var(--dock) + var(--safe-b));
+        }
+        #world3d { width: 100%; height: 100%; display: block; outline: none; touch-action: none; }
+        /* Док спрятан (меню, показ мод, итог) — сцена занимает весь экран. */
+        body.nodock #stage { bottom: 0; right: 0; }
+        body.nodock #stepbar { bottom: calc(var(--safe-b) + 16px); }
+
+        /* --- Верхняя полоса --------------------------------------------------- */
+        #topbar {
+            position: fixed; top: calc(8px + var(--safe-t)); left: 10px; right: 10px;
+            display: flex; gap: 8px; align-items: center; z-index: 12; pointer-events: none;
+        }
+        #topbar > * { pointer-events: auto; }
+        .chip {
+            display: flex; align-items: center; gap: 6px;
+            background: rgba(255, 252, 254, .92); border-radius: 999px;
+            padding: 7px 14px; font-weight: 800; font-size: 15px; box-shadow: var(--shadow);
+            white-space: nowrap;
+        }
+        .chip small { font-weight: 700; opacity: .65; font-size: 12px; }
+        #chip-level { overflow: hidden; }
+        #chip-level-text { overflow: hidden; text-overflow: ellipsis; }
+        @media (max-width: 430px) {
+            .icon-btn { width: 38px; height: 38px; font-size: 17px; }
+            .chip { padding: 6px 10px; font-size: 13px; }
+            #topbar { gap: 6px; left: 8px; right: 8px; }
+        }
+        .icon-btn {
+            width: 44px; height: 44px; border: 0; border-radius: 50%; cursor: pointer;
+            background: rgba(255, 252, 254, .92); box-shadow: var(--shadow);
+            font-size: 20px; line-height: 1; color: var(--ink); display: grid; place-items: center;
+        }
+        .icon-btn[aria-pressed="true"] { background: var(--pink); color: #fff; }
+        .grow { flex: 1 1 auto; min-width: 0; }
+
+        /* --- Подсказка шага и прогресс ---------------------------------------- */
+        #stepbar {
+            position: fixed; left: 12px; right: 12px; bottom: calc(var(--dock) + var(--safe-b) + 8px);
+            z-index: 11; display: flex; flex-direction: column; align-items: center; gap: 6px;
+            pointer-events: none; text-align: center;
+        }
+        #step-text {
+            background: rgba(74, 36, 64, .84); color: #fff; font-weight: 700; font-size: 15px;
+            padding: 8px 16px; border-radius: 16px; max-width: 94%; line-height: 1.25;
+        }
+        #step-dots { display: flex; gap: 6px; }
+        #step-dots i { width: 10px; height: 10px; border-radius: 50%; background: #ffffffaa; box-shadow: 0 1px 3px #0003; }
+        #step-dots i.on { background: var(--pink); }
+
+        /* --- Док с инструментами и палитрой ----------------------------------- */
+        #dock {
+            position: fixed; left: 0; right: 0; bottom: 0; height: calc(var(--dock) + var(--safe-b));
+            padding: 10px 8px calc(8px + var(--safe-b));
+            background: linear-gradient(180deg, #ffe3ef 0%, #ffc9e0 100%);
+            border-top: 3px solid #ffffffb0; box-shadow: 0 -6px 18px rgba(140, 50, 100, .16);
+            display: flex; flex-direction: column; gap: 8px; z-index: 13; box-sizing: border-box;
+        }
+        #palette { display: flex; gap: 10px; overflow-x: auto; min-height: 0; padding: 2px 4px; scrollbar-width: none; }
+        #palette::-webkit-scrollbar, #tray::-webkit-scrollbar { display: none; }
+        #palette:empty { display: none; }
+        .swatch {
+            flex: 0 0 auto; width: 46px; height: 46px; border-radius: 50%; border: 3px solid #fff;
+            box-shadow: var(--shadow); cursor: pointer; padding: 0; overflow: hidden;
+        }
+        .swatch.on { outline: 3px solid var(--pink); outline-offset: 2px; }
+        .swatch img { width: 100%; height: 100%; object-fit: contain; display: block; }
+        #tray { display: flex; gap: 10px; overflow-x: auto; flex: 1 1 auto; align-items: flex-start; padding: 2px 4px; scrollbar-width: none; }
+        .tool {
+            flex: 0 0 auto; width: 84px; height: 92px; border: 0; border-radius: 20px; cursor: pointer;
+            background: var(--card); box-shadow: var(--shadow); padding: 6px 4px;
+            display: flex; flex-direction: column; align-items: center; gap: 2px; color: var(--ink);
+        }
+        .tool img { width: 52px; height: 52px; object-fit: contain; pointer-events: none; }
+        .tool span { font-size: 11px; font-weight: 800; line-height: 1.1; text-align: center; }
+        .tool.on { background: var(--pink); color: #fff; transform: translateY(-4px); }
+        .tool.hintme { animation: pulse .8s ease-in-out infinite; }
+        @keyframes pulse { 50% { box-shadow: 0 0 0 6px #ff5f9e66, var(--shadow); } }
+
+        /* --- Гардероб ---------------------------------------------------------- */
+        #wardrobe { display: none; flex-direction: column; gap: 6px; flex: 1 1 auto; min-height: 0; }
+        #wardrobe.on { display: flex; }
+        #ward-cats { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; }
+        #ward-cats::-webkit-scrollbar, #ward-items::-webkit-scrollbar { display: none; }
+        .cat {
+            flex: 0 0 auto; border: 0; border-radius: 14px; padding: 6px 12px; cursor: pointer;
+            background: #ffffffcc; font-weight: 800; font-size: 12px; color: var(--ink);
+        }
+        .cat.on { background: var(--lilac); color: #fff; }
+        #ward-items { display: flex; gap: 8px; overflow-x: auto; flex: 1 1 auto; padding: 2px; }
+        .ward-item {
+            position: relative; flex: 0 0 auto; width: 74px; border: 0; border-radius: 16px; cursor: pointer;
+            background: var(--card); box-shadow: var(--shadow); padding: 4px; color: var(--ink);
+        }
+        .ward-item img { width: 100%; height: 62px; object-fit: contain; display: block; }
+        .ward-item.on { outline: 3px solid var(--pink); }
+        .ward-item .price {
+            position: absolute; inset: auto 0 0 0; background: #4a2440d9; color: #ffd76a;
+            font-size: 11px; font-weight: 800; border-radius: 0 0 12px 12px; padding: 2px 0;
+        }
+        .ward-item.locked img { opacity: .45; filter: grayscale(.6); }
+
+        /* --- Экраны ------------------------------------------------------------ */
+        #overlay {
+            position: fixed; inset: 0; z-index: 30; display: none;
+            align-items: center; justify-content: center; padding: 16px;
+            background: url('assets/art/bg/menu.webp?v=0.1.0') center / cover no-repeat,
+                        radial-gradient(120% 90% at 50% 0%, #ffd9ec 0%, #e3b8f0 60%, #c79ae8 100%);
+            overflow: auto;
+        }
+        #overlay.on { display: flex; }
+        #overlay.dim { background: rgba(74, 36, 64, .72); }
+        .tool span { overflow: hidden; }
+        .panel {
+            width: min(460px, 100%); background: var(--card); border-radius: 28px; padding: 22px 18px;
+            box-shadow: var(--shadow); text-align: center; box-sizing: border-box;
+        }
+        .panel h1 { margin: 0 0 2px; font-size: clamp(26px, 7vw, 40px); letter-spacing: -.5px; color: var(--pink); }
+        .panel h2 { margin: 0 0 10px; font-size: 22px; }
+        .panel p { margin: 4px 0 14px; font-size: 15px; opacity: .8; }
+        .btn {
+            display: block; width: 100%; margin: 8px 0; padding: 15px 18px; border: 0; border-radius: 20px;
+            background: var(--pink); color: #fff; font-size: 17px; font-weight: 800; cursor: pointer;
+            box-shadow: 0 6px 0 #d13f7d; box-sizing: border-box;
+        }
+        .btn:active { transform: translateY(3px); box-shadow: 0 3px 0 #d13f7d; }
+        .btn.ghost { background: #f2e3ee; color: var(--ink); box-shadow: 0 6px 0 #dcc6d6; }
+        .btn.ad { background: var(--lilac); box-shadow: 0 6px 0 #8a56c0; }
+        .btn[disabled] { opacity: .5; cursor: default; }
+        .row { display: flex; gap: 10px; }
+        .row .btn { margin: 8px 0; }
+        .stars { display: flex; justify-content: center; gap: 10px; margin: 6px 0 12px; }
+        .stars i { width: 52px; height: 52px; background: #e4d8e4; border-radius: 50%; display: block;
+                   background-size: contain; background-repeat: no-repeat; background-position: center; }
+        .stars i.on { background-color: #ffce4a; box-shadow: 0 0 0 6px #ffce4a33; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(62px, 1fr)); gap: 10px; margin-top: 12px; }
+        .node {
+            aspect-ratio: 1; border: 0; border-radius: 18px; background: var(--pink); color: #fff;
+            font-weight: 800; font-size: 18px; cursor: pointer; box-shadow: 0 4px 0 #d13f7d;
+            display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+        }
+        .node.locked { background: #ded2dd; color: #9b8b98; box-shadow: 0 4px 0 #c6b7c4; }
+        .node b { font-size: 10px; letter-spacing: 1px; color: #ffe27a; }
+        .node.locked b { color: transparent; }
+        .board { text-align: left; max-height: 44vh; overflow: auto; }
+        .board div { display: flex; justify-content: space-between; padding: 7px 10px; border-radius: 12px; font-weight: 700; }
+        .board div:nth-child(odd) { background: #f7ecf4; }
+        .board div.me { background: var(--pink-soft); }
+        #toast {
+            position: fixed; left: 50%; top: 22%; transform: translate(-50%, -10px); z-index: 40;
+            background: #4a2440ee; color: #fff; font-weight: 800; padding: 12px 20px; border-radius: 18px;
+            opacity: 0; transition: opacity .2s, transform .2s; pointer-events: none; max-width: 80vw; text-align: center;
+        }
+        #toast.on { opacity: 1; transform: translate(-50%, 0); }
+
+        /* --- Альбомная ориентация: док уезжает вправо ------------------------- */
+        @media (orientation: landscape) {
+            :root { --dock: 300px; }
+            #dock {
+                top: 0; left: auto; width: var(--dock); height: 100%;
+                padding: calc(10px + var(--safe-t)) 10px calc(10px + var(--safe-b));
+                border-top: 0; border-left: 3px solid #ffffffb0; box-shadow: -6px 0 18px rgba(140, 50, 100, .16);
+            }
+            #stage { right: var(--dock); bottom: 0; }
+            #tray { flex-wrap: wrap; overflow-y: auto; overflow-x: hidden; align-content: flex-start; }
+            #palette { flex-wrap: wrap; overflow: visible; }
+            #ward-items { flex-wrap: wrap; overflow-y: auto; overflow-x: hidden; align-content: flex-start; }
+            #ward-cats { flex-wrap: wrap; }
+            #topbar { right: calc(var(--dock) + 10px); }
+            #stepbar { right: calc(var(--dock) + 12px); bottom: 12px; }
+            body.nodock #topbar { right: 10px; }
+            body.nodock #stepbar { right: 12px; }
+        }
+        @media (orientation: landscape) and (max-height: 430px) {
+            :root { --dock: 250px; }
+            .tool { width: 68px; } .tool img { width: 42px; height: 42px; }
+        }
+        @media (orientation: portrait) and (max-height: 620px) {
+            :root { --dock: 176px; }
+            .tool { width: 72px; } .tool img { width: 44px; height: 44px; }
+        }
+
+        /* --- Экран загрузки (контракт LoadingScreen) --------------------------- */
+        #loading-screen {
+            position: fixed; inset: 0; display: flex; flex-direction: column;
+            justify-content: center; align-items: center; gap: 14px; z-index: 1000;
+            background: radial-gradient(120% 90% at 50% 0%, #ffd9ec 0%, #e3b8f0 55%, #b98ae0 100%);
+        }
+        .loading-text { font: 700 14px system-ui, sans-serif; color: #6b2f57; text-align: center; min-height: 1em; }
+        .loading-bar { width: min(240px, 70vw); height: 12px; background: #ffffff8c; border-radius: 6px; overflow: hidden; }
+        .loading-progress { height: 100%; width: 0%; background: linear-gradient(90deg, #ff5f9e, #b07ae8); transition: width .3s ease; }
+        #loading-title { margin: 0; font: 900 clamp(26px, 8vw, 46px)/1.1 system-ui, sans-serif; color: #fff;
+                         text-shadow: 0 4px 0 #d8459088, 0 10px 22px #8a3c6a55; text-align: center; max-width: 86vw; }
+        .engine-mark { width: clamp(96px, 20vh, 170px); height: clamp(96px, 20vh, 170px); object-fit: contain;
+                       filter: drop-shadow(0 8px 16px #8a3c6a44); }
+        #loading-percent { font: 900 17px system-ui, sans-serif; color: #7b2f5c; }
+        #loading-retry { padding: 13px 26px; border: 0; border-radius: 18px; background: #ff5f9e; color: #fff;
+                         font: 800 16px system-ui, sans-serif; cursor: pointer; box-shadow: 0 6px 0 #d13f7d; }
+    </style>
+    <link rel="stylesheet" href="assets/salon-ui.css">
+</head>
+<body>
+    <div id="stage"><canvas id="world3d"></canvas></div>
+
+    <header id="topbar">
+        <button class="icon-btn" id="btn-back" type="button" data-t-title="back" aria-label="Back">‹</button>
+        <div class="chip grow" id="chip-level"><span id="chip-level-text"></span></div>
+
+        <div class="chip" id="chip-coins"><span id="coins-value">0</span><small>◈</small></div>
+        <button class="icon-btn" id="btn-hint" type="button" data-t-title="hint" aria-label="Hint">?</button>
+        <button class="icon-btn" id="btn-sound" type="button" data-t-title="sound" aria-label="Sound">♪</button>
+        <button class="icon-btn" id="btn-done" type="button" data-t-title="dressDone" aria-label="Done" hidden>✓</button>
+        <button class="icon-btn" id="btn-pause" type="button" data-t-title="pause" aria-label="Pause">॥</button>
+    </header>
+
+    <div id="stepbar" hidden>
+        <div id="step-dots"></div>
+        <div id="step-text"></div>
+    </div>
+
+    <section id="battle" hidden aria-label="Fashion battle"></section>
+
+    <section id="dock" hidden>
+        <div class="dock-heading"><span data-t="salonTools">Инструменты мастера</span><i></i></div>
+        <div class="tool-status" id="selected-tool"></div>
+        <div id="palette"></div>
+        <div id="tray"></div>
+        <div id="wardrobe">
+            <div id="ward-cats"></div>
+            <div id="ward-items"></div>
+        </div>
+        <div class="care-status"><div id="care-progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" data-t-title="careProgress"><i></i></div><b id="care-percent">0%</b></div>
+    </section>
+
+    <div id="overlay"><div class="panel" id="panel"></div></div>
+    <div id="toast" role="status" aria-live="polite"></div>
+
+    <div id="loading-screen" role="status" aria-busy="true" aria-live="polite">
+        <img class="engine-mark" src="assets/art/ui/logo.webp" alt="" aria-hidden="true">
+        <h1 id="loading-title" data-t="title">Твой салон красоты</h1>
+        <div id="loading-percent">0%</div>
+        <div class="loading-bar" id="loading-meter" role="progressbar" aria-label="Загрузка" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div class="loading-progress"></div></div>
+        <div class="loading-text" data-t="loading"></div>
+        <button id="loading-retry" type="button" hidden></button>
+    </div>
+
+    <!-- Порядок значим: Constants.js первым (остальные читают его глобалы), main.js последним -->
+    <script src="https://games.pikabu.ru/sdk/sdk.js"></script>
+<script src="js/Constants.js?v=0.1.0"></script>
+    <script src="js/Maps.js?v=0.1.0"></script>
+    <script src="js/Maps2D.js?v=0.1.0"></script>
+    <script src="js/World2D.js?v=0.1.0"></script>
+    <script src="js/Pause.js?v=0.1.0"></script>
+    <script src="js/Sound.js?v=0.1.0"></script>
+    <script src="js/Lang.js?v=0.1.0"></script>
+    <script src="js/Platform.js?v=0.1.0"></script>
+    <script src="js/PlatformPikabu.js?v=0.1.0"></script>
+    <script src="js/LoadingScreen.js?v=0.1.0"></script>
+    <!-- Скрипты игры -->
+    <script src="js/Art.js?v=0.1.0"></script>
+    <script src="js/Items.js?v=0.1.0"></script>
+    <script src="js/Levels.js?v=0.1.0"></script>
+    <script src="js/UI.js?v=0.1.0"></script>
+    <script src="js/Stages.js?v=0.1.0"></script>
+    <script src="js/Game.js?v=0.1.0"></script>
+    <script src="js/main.js?v=0.1.0"></script>
+    <script>
+        // Игровая область: долгий тап и ПКМ не открывают меню браузера, картинки не
+        // тянутся, текст не выделяется — кроме настоящих полей ввода.
+        (() => {
+            const isField = t => t && (/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName) || t.isContentEditable);
+            for (const type of ['contextmenu', 'dragstart', 'selectstart']) {
+                document.addEventListener(type, e => { if (!isField(e.target)) e.preventDefault(); });
+            }
+        })();
+    </script>
+</body>
+</html>
